@@ -1,0 +1,4 @@
+venv/
+.env
+__pycache__/
+fembo_colos.db
