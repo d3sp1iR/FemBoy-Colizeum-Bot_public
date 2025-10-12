@@ -88,7 +88,7 @@ def cmd_profile(message):
         f"👤 {message.from_user.first_name}\n"
         f"🏳️‍🌈 Фембой: {femboy['name']}\n"
         f"Уровень: {femboy['lvl']} | XP: {femboy['xp']} | HP: {femboy['hp']}/{calculate_max_hp(femboy['lvl'])}\n"
-        f"Атака: {femboy['atk']} | Защита: {femboy['def']} | Золото: {femboy['gold']}"
+        f"Атака: {femboy['atk'] + femboy['weapon_atk']} | Защита: {femboy['def'] + femboy['armor_def']} | Золото: {femboy['gold']}"
     )
     bot.send_message(message.chat.id, msg)
 
@@ -109,7 +109,7 @@ def cmd_train(message):
         bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
         return
 
-    trainer = {"name": "Тренер", "hp": 40, "atk": 7, "def": 4, "lvl": 1, "xp": 0, "gold": 0}
+    trainer = {"name": "Тренер", "hp": 40, "atk": 7, "def": 4, "lvl": 1, "xp": 0, "gold": 0, "armor_def": 0}
 
     result = battle(femboy, trainer)
     for line in result["log"]:
@@ -194,6 +194,7 @@ def cmd_duel(message):
         return
 
     cur = conn.cursor()
+    # Создание дуэли
     cur.execute(
         "INSERT INTO duels (challenger_id, opponent_id, status) VALUES (?, ?, 'pending')",
         (user['id'], opponent['id'])
@@ -201,55 +202,88 @@ def cmd_duel(message):
     conn.commit()
     duel_id = cur.lastrowid
 
-    markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton(f"Принять дуэль от @{user['username']}", callback_data=f"accept_duel:{duel_id}")
-    markup.add(btn)
+    # Кнопка принять
+    markup = telebot.types.InlineKeyboardMarkup()
+    accept_button = telebot.types.InlineKeyboardButton(
+        text=f"Принять дуэль от @{user['username']}",
+        callback_data=f"accept_duel:{duel_id}:{opponent['telegram_id']}"  # <-- тут telegram_id
+    )
+    markup.add(accept_button)
 
-    bot.send_message(message.chat.id, f"@{opponent_username}, тебя вызвали на дуэль!", reply_markup=markup)
+    bot.send_message(
+        message.chat.id,
+        f"@{opponent['username']}, тебя вызвали на дуэль!",
+        reply_markup=markup
+    )
+
 
 # === Принятие дуэли ===
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_duel:"))
 def accept_duel_callback(call):
     try:
-        duel_id = int(call.data.split(":")[1])
+        # Разбираем callback_data
+        parts = call.data.split(":")  # parts[0] = 'accept_duel', parts[1] = duel_id, parts[2] = opponent_id
+        duel_id = int(parts[1])
+        opponent_id = int(parts[2])
+
         conn = db.get_conn()
         cur = conn.cursor()
+
+        # Проверяем, что нажал именно приглашённый игрок
+        cur.execute("SELECT telegram_id FROM users WHERE id=?", (opponent_id,))
+        row = cur.fetchone()
+        if not row:
+            bot.answer_callback_query(call.id, "Пользователь не найден!")
+            return
+
+        opponent_tid = row["telegram_id"]
+        if call.from_user.id != opponent_tid:
+            bot.answer_callback_query(call.id, "Эту дуэль может принять только приглашённый игрок!")
+            return
+
+        # Берём дуэль
         cur.execute("SELECT * FROM duels WHERE id=? AND status='pending'", (duel_id,))
         duel = cur.fetchone()
-
         if not duel:
             bot.answer_callback_query(call.id, "Дуэль уже завершена или не найдена.")
             return
 
+        # Получаем фембоев
         f_a = dict(db.get_femboy_by_user(conn, duel['challenger_id']))
         f_b = dict(db.get_femboy_by_user(conn, duel['opponent_id']))
 
+        # Запускаем бой
         result = battle(f_a, f_b)
         winner = result["winner"]
         loser = f_b if winner["name"] == f_a["name"] else f_a
 
-        # Награда
+        # Выигрыш золотом
         gold_gain = min(30, loser["gold"])
         winner["gold"] += gold_gain
         loser["gold"] -= gold_gain
-        winner["xp"] += 200
-        winner = check_level_up(winner)
 
-        winner["hp"] = calculate_max_hp(winner["lvl"])
-        loser["hp"] = calculate_max_hp(loser["lvl"])
+        # Восстанавливаем HP победителю
+        winner_max_hp = calculate_max_hp(winner["lvl"])
+        winner["hp"] = winner_max_hp
+        loser["hp"] = max(1, loser["hp"])
 
-        db.update_warrior(conn, winner["id"], winner)
-        db.update_warrior(conn, loser["id"], loser)
+        # Обновляем фембоев
+        db.update_warrior(conn, winner["id"], {"xp": winner["xp"], "gold": winner["gold"], "hp": winner["hp"]})
+        db.update_warrior(conn, loser["id"], {"hp": loser["hp"], "gold": loser["gold"]})
 
+        # Завершаем дуэль
         cur.execute("UPDATE duels SET status='finished', winner_id=? WHERE id=?", (winner["id"], duel_id))
         conn.commit()
 
         log_text = "\n".join(result["log"])
         bot.send_message(call.message.chat.id, f"🏆 Победитель: {winner['name']}\n\n{log_text}")
         bot.answer_callback_query(call.id, "Дуэль завершена!")
+
     except Exception as e:
         print("ERROR in accept_duel_callback:", e)
-        bot.answer_callback_query(call.id, f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, f"Произошла ошибка: {e}")
+
+
 
 # === Запуск ===
 if __name__ == "__main__":
