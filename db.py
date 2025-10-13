@@ -190,7 +190,8 @@ def update_warrior(conn, femboy_id: int, data: dict):
     cur.execute(f"UPDATE femboys SET {', '.join(fields)} WHERE id=?", values)
     conn.commit()
 
-def get_user_by_username(conn, username):
+def get_user_by_username(conn, username: str):
+    username = username.lstrip("@")  # убираем @ если есть
     cur = conn.cursor()
     cur.execute("SELECT * FROM users WHERE username=?", (username,))
     return cur.fetchone()

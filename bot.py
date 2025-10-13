@@ -21,11 +21,11 @@ def get_user(message):
 
 def calculate_max_hp(level):
     """HP по уровням"""
-    return 50 + (level - 1) * 10
+    return 50 + (level - 1) * 15
 
 def calculate_xp_to_next_level(level):
     """XP для перехода на следующий уровень"""
-    return level * 500
+    return level * 5000
 
 def check_level_up(femboy):
     """Проверка апа уровня"""
@@ -69,7 +69,7 @@ def cmd_create(message):
         return
 
     femboy = db.create_femboy(conn, user['id'], args[1])
-    bot.send_message(message.chat.id, f"Фембой {femboy['name']} создан! 🏳️‍🌈")
+    bot.send_message(message.chat.id, f"Фембой {femboy['name']} создан! 🏳️")
 
 # === /profile ===
 @bot.message_handler(commands=['profile'])
@@ -86,9 +86,9 @@ def cmd_profile(message):
 
     msg = (
         f"👤 {message.from_user.first_name}\n"
-        f"🏳️‍🌈 Фембой: {femboy['name']}\n"
+        f"🏳️ Фембой: {femboy['name']}\n"
         f"Уровень: {femboy['lvl']} | XP: {femboy['xp']} | HP: {femboy['hp']}/{calculate_max_hp(femboy['lvl'])}\n"
-        f"Атака: {femboy['atk']} | Защита: {femboy['def']} | Золото: {femboy['gold']}"
+        f"Атака: {femboy['atk'] + femboy['weapon_atk']} | Защита: {femboy['def'] + femboy['armor_def']} | Золото: {femboy['gold']}"
     )
     bot.send_message(message.chat.id, msg)
 
@@ -109,7 +109,7 @@ def cmd_train(message):
         bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
         return
 
-    trainer = {"name": "Тренер", "hp": 40, "atk": 7, "def": 4, "lvl": 1, "xp": 0, "gold": 0}
+    trainer = {"name": "Тренер", "hp": 40, "atk": 7, "def": 4, "lvl": 1, "xp": 0, "gold": 100, "armor_def": 0}
 
     result = battle(femboy, trainer)
     for line in result["log"]:
@@ -118,12 +118,13 @@ def cmd_train(message):
     winner = result["winner"]
     if winner["name"] == femboy["name"]:
         femboy["xp"] += 200
-        femboy["gold"] += 10
+        femboy["atk"] += 5
+        femboy["gold"] += 50
         femboy["hp"] = min(calculate_max_hp(femboy["lvl"]), femboy["hp"] + 10)
         femboy = check_level_up(femboy)
         db.update_warrior(conn, femboy["id"], femboy)
         db.update_training_time(conn, user['id'])
-        bot.send_message(message.chat.id, f"Ты стал сильнее! 🌟 XP: {femboy['xp']} | Уровень: {femboy['lvl']}")
+        bot.send_message(message.chat.id, f"Ты стал сильнее! Твоя атака увеличилась на 5 единиц и теперь {femboy['atk']}\n 🌟 XP: {femboy['xp']} | Уровень: {femboy['lvl']}")
     else:
         bot.send_message(message.chat.id, "Тренировка окончена! Но не сдавайся 💪")
 
@@ -174,10 +175,10 @@ def cmd_buy(message):
     bot.send_message(message.chat.id, result)
 
 # === /duel ===
+# /duel @username
 @bot.message_handler(commands=['duel'])
 def cmd_duel(message):
-    conn = db.get_conn()
-    user = db.get_user_by_tid(conn, message.from_user.id)
+    user = get_user(message)
     if not user:
         bot.send_message(message.chat.id, "Сначала зарегистрируйся /start")
         return
@@ -188,68 +189,164 @@ def cmd_duel(message):
         return
 
     opponent_username = args[1].lstrip('@')
-    opponent = db.get_user_by_username(conn, opponent_username)
+    # ищем по username в базе, но если None — ищем по Telegram ID через get_user_by_tid
+    opponent = None
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE username=?", (opponent_username,))
+    opponent = cur.fetchone()
     if not opponent:
-        bot.send_message(message.chat.id, f"Пользователь @{opponent_username} не найден!")
+        bot.send_message(message.chat.id, f"Пользователь @{opponent_username} не найден или не зарегистрирован!")
         return
 
-    cur = conn.cursor()
+    if opponent["id"] == user["id"]:
+        bot.send_message(message.chat.id, "Нельзя вызвать себя 😅")
+        return
+
     cur.execute(
-        "INSERT INTO duels (challenger_id, opponent_id, status) VALUES (?, ?, 'pending')",
-        (user['id'], opponent['id'])
+        "INSERT INTO duels (challenger_id, opponent_id) VALUES (?, ?)",
+        (user["id"], opponent["id"])
     )
     conn.commit()
     duel_id = cur.lastrowid
 
     markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton(f"Принять дуэль от @{user['username']}", callback_data=f"accept_duel:{duel_id}")
-    markup.add(btn)
+    accept_button = InlineKeyboardButton(
+        text=f"Принять дуэль от @{user['username'] or 'игрок'}",
+        callback_data=f"accept_duel:{duel_id}:{opponent['telegram_id']}"
+    )
+    markup.add(accept_button)
 
     bot.send_message(message.chat.id, f"@{opponent_username}, тебя вызвали на дуэль!", reply_markup=markup)
+
 
 # === Принятие дуэли ===
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_duel:"))
 def accept_duel_callback(call):
     try:
-        duel_id = int(call.data.split(":")[1])
+        # Разбираем callback_data
+        parts = call.data.split(":")
+        duel_id = int(parts[1])
+        allowed_tid = int(parts[2])  # Telegram ID того, кто должен принять
+
+        if call.from_user.id != allowed_tid:
+            bot.answer_callback_query(call.id, "Эту дуэль может принять только приглашённый игрок!")
+            return
+
+        # Подключаемся к базе и создаём курсор
         conn = db.get_conn()
         cur = conn.cursor()
+
+        # Берём дуэль
         cur.execute("SELECT * FROM duels WHERE id=? AND status='pending'", (duel_id,))
         duel = cur.fetchone()
-
         if not duel:
             bot.answer_callback_query(call.id, "Дуэль уже завершена или не найдена.")
             return
 
+        # Получаем фембоев
         f_a = dict(db.get_femboy_by_user(conn, duel['challenger_id']))
         f_b = dict(db.get_femboy_by_user(conn, duel['opponent_id']))
 
-        result = battle(f_a, f_b)
+        # Запускаем бой
+        result = battle(f_a, f_b,)
         winner = result["winner"]
         loser = f_b if winner["name"] == f_a["name"] else f_a
+        
+        #Баблишко накидываем
+        winner['gold'] += (loser["gold"] /2)
+        loser['gold'] -= (loser["gold"] /2)
 
-        # Награда
-        gold_gain = min(30, loser["gold"])
-        winner["gold"] += gold_gain
-        loser["gold"] -= gold_gain
-        winner["xp"] += 200
-        winner = check_level_up(winner)
+        # Восстанавливаем HP победителю
+        winner_max_hp = calculate_max_hp(winner["lvl"])
+        winner["hp"] = winner_max_hp
+        loser["hp"] = max(1, loser["hp"])
 
-        winner["hp"] = calculate_max_hp(winner["lvl"])
-        loser["hp"] = calculate_max_hp(loser["lvl"])
+        # Обновляем фембоев
+        db.update_warrior(conn, winner["id"], {"xp": winner["xp"], "gold": winner["gold"], "hp": winner["hp"]})
+        db.update_warrior(conn, loser["id"], {"hp": loser["hp"], "gold": loser["gold"]})
 
-        db.update_warrior(conn, winner["id"], winner)
-        db.update_warrior(conn, loser["id"], loser)
-
+        # Завершаем дуэль
         cur.execute("UPDATE duels SET status='finished', winner_id=? WHERE id=?", (winner["id"], duel_id))
         conn.commit()
 
         log_text = "\n".join(result["log"])
         bot.send_message(call.message.chat.id, f"🏆 Победитель: {winner['name']}\n\n{log_text}")
         bot.answer_callback_query(call.id, "Дуэль завершена!")
+
     except Exception as e:
         print("ERROR in accept_duel_callback:", e)
-        bot.answer_callback_query(call.id, f"Ошибка: {e}")
+        bot.answer_callback_query(call.id, f"Произошла ошибка: {e}")
+
+@bot.message_handler(commands=['tops']) 
+def cmd_tops(message):
+    try:
+        conn = db.get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT name, lvl, xp
+            FROM femboys
+            ORDER BY lvl DESC, xp DESC
+            LIMIT 10
+        """)
+        top_players = cur.fetchall()
+
+        if not top_players:
+            bot.send_message(message.chat.id, "Пока нет ни одного покорителя колизея!")
+            return
+        
+        text = "<b>ТОП ФЕМБОЙЧИКОВ КОЛИЗЕЯ</b>\n\n"
+        for i, player in enumerate(top_players, start=1):
+            name = player["name"]
+            lvl = player["lvl"]
+            xp = player["xp"]
+            text += f"<b>{i}.</b> {name} - Уровень: {lvl}, Опыт: {xp}\n"
+
+        bot.send_message(message.chat.id, text, parse_mode="HTML")
+
+    except Exception as e:
+        print("ERROR IN /tops:", e)
+        bot.send_message(message.chat.id, f"ПРОИЗОШЛА ОШИБКА, ТОПА НЕТ, ВЫ ВСЕ ЛОХИ :/")
+
+
+    
+@bot.message_handler(commands=['help'])
+def cmd_help(message):
+    bot.send_message(message.chat.id, ""
+    "/create_femboy <name> - создание своего персонажа\n "
+    "/profile - просмотреть профиль персонажа\n "
+    "/shop - магазин\n "
+    "/duel <@username> - вызвать пользователя на дуэль\n "
+    "/train - провести тренировочный бой с персонажем-тренером\n")
+
+@bot.message_handler(commands=['reset_all'])
+def cmd_reset_all(message):
+    if message.from_user.id != 1749731920:
+        bot.reply_to(message, "ты не админ, хатьфу, соси.")
+        return
+
+    try:
+        conn = db.get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE femboys
+            SET lvl = 1,
+                xp = 0,
+                gold = 30,
+                hp = 50,
+                weapon_atk = 0,
+                armor_def = 0,
+                atk = 10,
+                def = 5
+
+        """)
+        cur.execute("UPDATE users SET last_training = NULL")
+        conn.commit()
+        bot.send_message(message.chat.id, "Все фембои возвращны в свои инкубаторы и откатились до заводских!")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"Error in /reset_all: {e}")
+        print("Error in /reset_all:", e)
+    finally:
+        conn.close()
 
 # === Запуск ===
 if __name__ == "__main__":

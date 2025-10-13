@@ -45,13 +45,28 @@ def battle(femboy_a: dict, femboy_b: dict) -> dict:
 
         round_num += 1
 
-        if a["hp"] <= 0 or b["hp"] <= 0:
+        if a["hp"] == 0 or b["hp"] == 0:
             break
 
-    winner = a if a["hp"] > 0 else b
-    winner["xp"] += 50
-    winner["gold"] += 30
-    log.append(f"\n🏆 Победитель: {winner['name']}! +50 XP, +30 gold")
+
+
+    if (a["hp"] == 0 and b["hp"] == 0):
+        a["xp"] +=50
+        b["xp"] += 50
+        log.append("\n НИЧЬЯ оба по +50 опыта, но без баблишка :)")
+    else:
+        winner = a if a["hp"] > 0 else b
+
+        loser = b if winner == a else a
+
+        win = loser['gold'] / 2
+
+        winner["xp"] += 50
+        
+        #winner['gold'] += win
+        #loser['gold'] -= win
+
+        log.append(f"\n🏆 Победитель: {winner['name']}! +50 XP, +{win} gold")
 
     return {"winner": winner, "log": log}
 
