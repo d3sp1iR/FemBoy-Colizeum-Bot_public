@@ -28,45 +28,50 @@ def battle(femboy_a: dict, femboy_b: dict) -> dict:
     log = []
     a = femboy_a.copy()
     b = femboy_b.copy()
+
+    log.append(f"🔞 🔞 🔞  {a['name']} 🆚 {b['name']}  🔞 🔞 🔞 \n")
+
+    #  Случайный выбор, кто атакует первым
+    attacker, defender = (a, b) if random.choice([True, False]) else (b, a)
+    log.append(f"🎲 {attacker['name']} выигрывает инициативу и атакует первым!\n")
+
     round_num = 1
 
     while a["hp"] > 0 and b["hp"] > 0:
-        # Считаем суммарный урон за раунд
-        damage_a = max(0, a["atk"] + a["weapon_atk"] - (b["def"] + b["armor_def"])) + random.randint(0,5)
-        damage_b = max(0, b.get("atk",10) + b.get("weapon_atk",0) - (a["def"] + a["armor_def"])) + random.randint(0,5)
+        log.append(f"Раунд {round_num}:")
 
-        b["hp"] -= damage_a
-        a["hp"] -= damage_b
+        #  Атака
+        damage = max(0, attacker["atk"] + attacker["weapon_atk"] - (defender["def"] + defender["armor_def"])) + random.randint(0, 5)
+        defender["hp"] = max(0, defender["hp"] - damage)
+        log.append(f"{attacker['name']} наносит {damage} урона!💥\n У {defender['name']} осталось {defender['hp']} HP ❤ .")
 
-        log.append(
-            f"Раунд {round_num}: {a['name']} наносит {damage_a}, {b['name']} наносит {damage_b} | "
-            f"HP: {a['name']}={max(a['hp'],0)}, {b['name']}={max(b['hp'],0)}"
-        )
-
-        round_num += 1
-
-        if a["hp"] == 0 or b["hp"] == 0:
+        #  Проверка, жив ли защитник
+        if defender["hp"] <= 0:
+            log.append(f"{defender['name']} пал!💀💀💀")
             break
 
+        #  Меняем роли
+        attacker, defender = defender, attacker
+        round_num += 1
 
-
-    if (a["hp"] == 0 and b["hp"] == 0):
-        a["xp"] +=50
+    # Результаты боя
+    if a["hp"] == 0 and b["hp"] == 0:
+        # Ничья
+        a["xp"] += 50
         b["xp"] += 50
-        log.append("\n НИЧЬЯ оба по +50 опыта, но без баблишка :)")
+        log.append("\n🤝 НИЧЬЯ! Оба фембоя получают по +50 XP💡, но без золота.")
+        winner = None
     else:
+        # Победа
         winner = a if a["hp"] > 0 else b
-
         loser = b if winner == a else a
 
-        win = loser['gold'] / 2
-
+        win = round(loser['gold'] / 2)
         winner["xp"] += 50
-        
-        #winner['gold'] += win
-        #loser['gold'] -= win
+        winner['gold'] += win
+        loser['gold'] = max(0, loser['gold'] - win)
 
-        log.append(f"\n🏆 Победитель: {winner['name']}! +50 XP, +{win} gold")
+        log.append(f"\n🏆 Победитель: {winner['name']}! +50 XP💡 , +{win} gold💰")
 
     return {"winner": winner, "log": log}
 

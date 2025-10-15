@@ -1,4 +1,4 @@
-# bot.py
+
 import os
 import random
 import telebot
@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import db
 from game import battle, buy_item
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+import time 
 
 # === Настройка ===
 load_dotenv()
@@ -253,8 +254,8 @@ def accept_duel_callback(call):
         loser = f_b if winner["name"] == f_a["name"] else f_a
         
         #Баблишко накидываем
-        winner['gold'] += (loser["gold"] /2)
-        loser['gold'] -= (loser["gold"] /2)
+        winner['gold'] += round(loser["gold"]/2)
+        loser['gold'] -= round(loser["gold"]/2)
 
         # Восстанавливаем HP победителю
         winner_max_hp = calculate_max_hp(winner["lvl"])
@@ -348,7 +349,13 @@ def cmd_reset_all(message):
     finally:
         conn.close()
 
-# === Запуск ===
-if __name__ == "__main__":
-    print("Bot started...")
-    bot.infinity_polling()
+
+
+
+while True:
+    try:
+        print("Bot started...")
+        bot.infinity_polling(timeout=30, long_polling_timeout=25)
+    except Exception as e:
+        print("Polling error:", e)
+        time.sleep(5)
