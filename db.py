@@ -71,7 +71,7 @@ def init_db():
         ("Костюм горничной", "armor", 9, 200),
         ("Меч Астольфо", "weapon", 50, 1000),
         ("Кошачьи ушки", "armor", 25, 450),
-        ("Благородная Слизь", "armor", 80, 5000)
+        ("Благородная Слизь", "armor", 100, 1500 )
     ]
     for item in items:
         cur.execute("SELECT 1 FROM items WHERE name = ?", (item[0],))

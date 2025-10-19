@@ -22,16 +22,19 @@ def get_user(message):
 
 def calculate_max_hp(level):
     """HP по уровням"""
-    return 50 + (level - 1) * 15
+    return 50 + (level - 1) * 50
 
 def calculate_xp_to_next_level(level):
     """XP для перехода на следующий уровень"""
-    return level * 5000
+    return level * 1000
 
 def check_level_up(femboy):
     """Проверка апа уровня"""
     leveled_up = False
     xp_needed = calculate_xp_to_next_level(femboy["lvl"])
+
+    print(f"DEBUG: lvl={femboy['lvl']}, xp={femboy['xp']}, need={xp_needed}")
+    
     while femboy["xp"] >= xp_needed:
         femboy["xp"] -= xp_needed
         femboy["lvl"] += 1
@@ -39,6 +42,8 @@ def check_level_up(femboy):
         xp_needed = calculate_xp_to_next_level(femboy["lvl"])
     if leveled_up:
         femboy["hp"] = calculate_max_hp(femboy["lvl"])
+
+    db.update_warrior(conn, femboy["id"], femboy)
     return femboy
 
 # === /start ===
@@ -84,6 +89,8 @@ def cmd_profile(message):
     if not femboy:
         bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
         return
+    
+    femboy = check_level_up(femboy)
 
     msg = (
         f"👤 {message.from_user.first_name}\n"
@@ -93,6 +100,59 @@ def cmd_profile(message):
     )
     bot.send_message(message.chat.id, msg)
 
+#=====boss fight =====
+@bot.message_handler(commands=['boss'])
+def cmd_boss(message):
+    user = get_user(message)
+    if not user:
+        bot.send_message(message.chat.id, "Сначала зарегистрируйся /start")
+        return
+    
+    femboy = dict(db.get_femboy_by_user(conn, user['id']))
+    if not femboy:
+        bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
+        return
+
+    # === Определяем текущего босса ===
+    bosses = {
+        1: {"name": "Энергет", "hp": 100, "atk": 20, "def": 4, "lvl": 1, "xp": 0, "gold": 300, "armor_def": 0, "weapon_atk": 0},
+        2: {"name": "Гигачад", "hp": 150, "atk": 30, "def": 6, "lvl": 2, "xp": 0, "gold": 600, "armor_def": 0, "weapon_atk": 0},
+        3: {"name": "Синьор ФемБой", "hp": 200, "atk": 40, "def": 8, "lvl": 3, "xp": 0, "gold": 1000, "armor_def": 0, "weapon_atk": 0},
+        4: {"name": "Лорд Глиттер", "hp": 250, "atk": 50, "def": 10, "lvl": 4, "xp": 0, "gold": 1500, "armor_def": 0, "weapon_atk": 0}
+    }
+
+    boss_num = femboy.get("current_boss", 1)
+    if boss_num not in bosses:
+        bot.send_message(message.chat.id, "🎉 Ты уже победил всех доступных боссов! Жди обновления 👑")
+        return
+
+    boss = bosses[boss_num]
+    result = battle(femboy, boss)
+    winner = result["winner"]
+    log_text = "\n".join(result["log"])
+
+    if winner["name"] == femboy["name"]:
+        # === Победа ===
+        femboy["xp"] += 1000 * boss_num
+        femboy["gold"] += boss["gold"]
+        femboy["hp"] = min(calculate_max_hp(femboy["lvl"]), femboy["hp"] + 20)
+        femboy = check_level_up(femboy)
+        
+        # Продвигаем к следующему боссу
+        femboy["current_boss"] = boss_num + 1
+
+        db.update_warrior(conn, femboy["id"], femboy)
+        bot.send_message(
+            message.chat.id,
+            f"🏆 Победа над {boss['name']}!\n\n{log_text}\n\n"
+            f"🌟 XP: {femboy['xp']} | Уровень: {femboy['lvl']}\n"
+            f"💰 Золото: {femboy['gold']}\n"
+            f"➡️ Следующий босс: {femboy['current_boss']}"
+        )
+    else:
+        bot.send_message(message.chat.id, f"💀 Ты пал от руки {boss['name']}!\n\n{log_text}\n\nА ещё тебя отымели, братан!")
+
+        
 # === /train ===
 @bot.message_handler(commands=['train'])
 def cmd_train(message):
@@ -110,29 +170,61 @@ def cmd_train(message):
         bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
         return
 
-    trainer = {"name": "Тренер", "hp": 40, "atk": 7, "def": 4, "lvl": 1, "xp": 0, "gold": 100, "armor_def": 0, "weapon_atk": 0}
+
+    trainer_easy = {"name": "Тренер Святик", "hp": 50, "atk": 10, "def": 4, "lvl": 1, "xp": 0, "gold": 100, "armor_def": 0, "weapon_atk": 0}
+    trainer_medium = {"name": "Тренер Блестяшка", "hp": 50, "atk": 30, "def": 4, "lvl": 1, "xp": 0, "gold": 200, "armor_def": 0, "weapon_atk": 0}
+    trainer_medium_plus = {"name": "ИБМщик", "hp": 50, "atk": 50, "def": 4, "lvl": 1, "xp": 0, "gold": 300, "armor_def": 0, "weapon_atk": 0}
+    
+
+    if (femboy['atk'] + femboy["weapon_atk"]) <= 20:
+        trainer = trainer_easy
+    elif (femboy['atk'] + femboy["weapon_atk"]) <= 40:
+        trainer = trainer_medium
+    elif (femboy['atk'] + femboy["weapon_atk"]) <= 55:
+        trainer = trainer_medium_plus
 
     result = battle(femboy, trainer)
-    for line in result["log"]:
-        bot.send_message(message.chat.id, line)
+    femboy["xp"] += result["winner"]["xp"] - femboy["xp"]  # прибавляем разницу
+    femboy = check_level_up(femboy)
 
     winner = result["winner"]
     if winner["name"] == femboy["name"]:
-        femboy["xp"] += 200
-        femboy["atk"] += 5
-        femboy["gold"] += 50
+        if trainer == trainer_easy:
+            femboy["xp"] += 200
+            femboy["atk"] += 5
+            femboy["gold"] += 50
+        elif trainer == trainer_medium:
+            femboy["xp"] += 500
+            femboy["atk"] += 5
+            femboy["gold"] += 100
+        elif trainer == trainer_medium_plus:
+            femboy["xp"] += 750
+            femboy["atk"] += 5
+            femboy["gold"] += 150
         femboy["hp"] = min(calculate_max_hp(femboy["lvl"]), femboy["hp"] + 10)
         femboy = check_level_up(femboy)
         db.update_warrior(conn, femboy["id"], femboy)
         db.update_training_time(conn, user['id'])
+        log_text = "\n".join(result["log"])
+        bot.send_message(message.chat.id, f"🏆 Победитель: {winner['name']}\n\n{log_text}")
         bot.send_message(message.chat.id, f"Ты стал сильнее! Твоя атака увеличилась на 5 единиц и теперь {femboy['atk']}\n 🌟 XP: {femboy['xp']} | Уровень: {femboy['lvl']}")
     else:
+        log_text = "\n".join(result["log"])
         bot.send_message(message.chat.id, "Тренировка окончена! Но не сдавайся 💪")
 
 # === /shop ===
 @bot.message_handler(commands=['shop'])
 def cmd_shop(message):
     try:
+        user = get_user(message)
+        if not user:
+            bot.send_message(message.chat.id, "Сначала зарегистрируйся /start")
+            return
+    
+        femboy = dict(db.get_femboy_by_user(conn, user['id']))
+        if not femboy:
+            bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
+            return
         cur = conn.cursor()
         cur.execute("SELECT * FROM items")
         items = cur.fetchall()
@@ -143,7 +235,7 @@ def cmd_shop(message):
         msg = "🏬 Магазин:\n"
         for i in items:
             msg += f"{i['id']}. {i['name']} ({i['type']}) — {i['value']} | 💰 {i['price']} gold\n"
-        msg += "\nЧтобы купить: /buy <id>"
+        msg += f"\nЧтобы купить: /buy <id>\nТвой баланс: {femboy['gold']}"
         bot.send_message(message.chat.id, msg)
     except Exception as e:
         bot.send_message(message.chat.id, f"Ошибка: {e}")
@@ -264,14 +356,10 @@ def accept_duel_callback(call):
 
         complexity_lvl = result["complexity_lvl"]
 
-        #if winner['xp'] > loser['xp']:
-        #    complexity_lvl = winner['xp'] - loser["xp"]
-        #elif winner['xp'] < loser['xp']:
-        #    complexity_lvl = loser['xp'] - winner["xp"]
-        #else:
-        #    complexity_lvl = 1
-
         loser["xp"] += round(complexity_lvl/10)
+
+        winner = check_level_up(winner)
+        loser = check_level_up(loser)
 
         # Обновляем фембоев
         db.update_warrior(conn, loser["id"], {"hp": loser["hp"], "gold": loser["gold"], "xp": loser["xp"]})
