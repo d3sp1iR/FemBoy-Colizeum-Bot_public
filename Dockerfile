@@ -9,14 +9,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Папка для базы — именно сюда будет монтироваться Volume
+# Создаем папку для данных
 RUN mkdir -p /app/data
 
-# Указываем хостингу где должен быть volume:
-# В панели хостинга укажи путь /app/data
-VOLUME ["/app/data"]
+# КОПИРУЕМ базу данных в контейнер
+COPY data/fembo_colos.db /app/data/fembo_colos.db
 
-# Если нужен вебхук — оставим, не нужен — не мешает
-EXPOSE 8080
+# Делаем БД доступной для записи
+RUN chmod 666 /app/data/fembo_colos.db
 
 CMD ["python", "bot.py"]
