@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-DB_PATH = "data/fembo_colos.db"
+DB_PATH = "app/data/fembo_colos.db"
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
