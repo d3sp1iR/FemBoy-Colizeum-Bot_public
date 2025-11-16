@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-DB_PATH = "fembo_colos.db"
+DB_PATH = "app/data/fembo_colos.db"
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -44,7 +44,7 @@ def init_db():
         name TEXT NOT NULL,
         lvl INTEGER DEFAULT 1,
         xp INTEGER DEFAULT 0,
-        hp INTEGER DEFAULT 100,
+        hp INTEGER DEFAULT 50,
         atk INTEGER DEFAULT 10,
         def INTEGER DEFAULT 5,
         gold INTEGER DEFAULT 0,
