@@ -9,10 +9,12 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import time 
 import datetime
 
+
 # === Настройка ===
 #load_dotenv()
 TOKEN = "8429912189:AAFyM54mxHeQdupvmH9NJOfGLrUnPxHF9bQ"
 bot = telebot.TeleBot(TOKEN)
+bot.start_time = time.time()  
 conn = db.init_db()
 
 # === Вспомогательные функции ===
@@ -494,6 +496,80 @@ def cmd_reset_all(message):
     finally:
         conn.close()
 
+
+@bot.message_handler(commands=['rename'])
+def cmd_rename(message):
+    user = get_user(message)
+    if not user:
+        bot.send_message(message.chat.id, "Сначала зарегистрируйся /start")
+        return
+
+    femboy = db.get_femboy_by_user(conn, user['id'])
+    if not femboy:
+        bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажи новое имя: /rename <новое_имя>")
+        return
+
+    new_name = args[1].strip()
+    if len(new_name) > 20:
+        bot.send_message(message.chat.id, "Имя не должно превышать 20 символов!")
+        return
+
+    try:
+        conn = db.get_conn()
+        cur = conn.cursor()
+        cur.execute("UPDATE femboys SET name = ? WHERE user_id = ?", (new_name, user['id']))
+        conn.commit()
+        
+        bot.send_message(message.chat.id, f"✅ Имя фембоя успешно изменено на: {new_name}")
+        
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Ошибка при изменении имени: {e}")
+        print("Error in /rename:", e)
+
+@bot.message_handler(commands=['status'])
+def cmd_status(message):
+    try:
+        # Проверяем подключение к БД
+        conn = db.get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) as count FROM users")
+        users_count = cur.fetchone()["count"]
+        
+        cur.execute("SELECT COUNT(*) as count FROM femboys")
+        femboys_count = cur.fetchone()["count"]
+        
+        # Получаем время работы бота (примерно)
+        import time
+        start_time = getattr(bot, 'start_time', time.time())
+        uptime_seconds = int(time.time() - start_time)
+        uptime_str = f"{uptime_seconds // 3600}ч {(uptime_seconds % 3600) // 60}м {uptime_seconds % 60}с"
+        
+        status_text = (
+            "🤖 <b>СТАТУС БОТА</b>\n\n"
+            f"✅ <b>Бот активен</b>\n"
+            f"👥 Пользователей: {users_count}\n"
+            f"🏳️ Фембоев: {femboys_count}\n"
+            f"⏱ Время работы: {uptime_str}\n"
+            f"📊 База данных: <code>{DB_PATH}</code>\n\n"
+            "⚡ <i>Все системы работают нормально</i>"
+        )
+        
+        bot.send_message(message.chat.id, status_text, parse_mode="HTML")
+        
+    except Exception as e:
+        error_text = (
+            "❌ <b>СТАТУС БОТА</b>\n\n"
+            f"⚠️ <b>Обнаружены проблемы:</b>\n"
+            f"Ошибка: {e}\n\n"
+            "🔧 <i>Требуется проверка</i>"
+        )
+        bot.send_message(message.chat.id, error_text, parse_mode="HTML")
+        print("Error in /status:", e)
 
 while True:
     try:
