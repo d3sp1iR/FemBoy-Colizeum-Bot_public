@@ -57,6 +57,9 @@ def check_level_up(femboy):
     db.update_warrior(conn, femboy["id"], femboy)
     return femboy
 
+def is_user_admin_by_id(id):
+    return id in (1749731920,6199647470)
+
 # === /start ===
 @bot.message_handler(commands=['start'])
 def cmd_start(message):
@@ -470,7 +473,7 @@ def cmd_help(message):
 
 @bot.message_handler(commands=['reset_all'])
 def cmd_reset_all(message):
-    if message.from_user.id != 1749731920:
+    if is_user_admin_by_id(id):
         bot.reply_to(message, "ты не админ, хатьфу, соси.")
         return
 
@@ -537,6 +540,9 @@ def cmd_rename(message):
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message):
+    if is_user_admin_by_id(id) != True:
+        bot.reply_to(message, "ты не админ, хатьфу, соси.")
+        return
     try:
         # Проверяем подключение к БД
         conn = db.get_conn()
