@@ -58,7 +58,7 @@ def check_level_up(femboy):
     return femboy
 
 def is_user_admin_by_id(id):
-    return id in (1749731920,6199647470)
+    return (id in {1749731920,6199647470})
 
 # === /start ===
 @bot.message_handler(commands=['start'])
@@ -473,7 +473,7 @@ def cmd_help(message):
 
 @bot.message_handler(commands=['reset_all'])
 def cmd_reset_all(message):
-    if is_user_admin_by_id(id):
+    if is_user_admin_by_id(id) != True:
         bot.reply_to(message, "ты не админ, хатьфу, соси.")
         return
 
