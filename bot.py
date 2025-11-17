@@ -7,62 +7,20 @@ import db as db
 from game import battle, buy_item
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import time 
-import datetime
-
+from travel import start_adventure, adventure_checker
+from bot_utils import get_inventory, get_user, calculate_max_hp, calculate_xp_to_next_level, check_level_up, is_user_admin_by_id, is_user_admin_by_message
+from datetime import datetime, timedelta
 
 # === Настройка ===
 #load_dotenv()
 TOKEN = "8429912189:AAFyM54mxHeQdupvmH9NJOfGLrUnPxHF9bQ"
+# TOKEN = "7849791400:AAHi9JlJFwF_bVlMmWUwaXEhdP7chlHQSCw"
 bot = telebot.TeleBot(TOKEN)
 bot.start_time = time.time()  
 conn = db.init_db()
+adventure_checker(bot)
 
 # === Вспомогательные функции ===
-
-def get_inventory(conn, femboy_id):
-    cur = conn.cursor()
-    cur.execute("SELECT name, type, COUNT(*) as qty FROM femboy_items fi "
-                "JOIN items i ON fi.item_id = i.id "
-                "WHERE fi.femboy_id = ? "
-                "GROUP BY fi.item_id", (femboy_id,))
-    items = cur.fetchall()
-    return items  # список словарей: {"name": ..., "type": ..., "qty": ...}
-
-def get_user(message):
-    if not message.from_user:
-        return None
-    return db.get_user_by_tid(conn, message.from_user.id)
-
-def calculate_max_hp(level):
-    """HP по уровням"""
-    return 50 + (level - 1) * 20
-
-def calculate_xp_to_next_level(level):
-    """XP для перехода на следующий уровень"""
-    return level * 1000
-
-def check_level_up(femboy):
-    """Проверка апа уровня"""
-    leveled_up = False
-    xp_needed = calculate_xp_to_next_level(femboy["lvl"])
-    
-    while femboy["xp"] >= xp_needed:
-        femboy["xp"] -= xp_needed
-        femboy["lvl"] += 1
-        leveled_up = True
-        xp_needed = calculate_xp_to_next_level(femboy["lvl"])
-    if leveled_up:
-        femboy["hp"] = calculate_max_hp(femboy["lvl"])
-
-    db.update_warrior(conn, femboy["id"], femboy)
-    return femboy
-
-def is_user_admin_by_id(id):
-    return id in [1749731920,6199647470]
-
-def is_user_admin_by_message(message):
-    return is_user_admin_by_id(message.from_user.id)
-
 
 # === /start ===
 @bot.message_handler(commands=['start'])
@@ -498,6 +456,7 @@ def cmd_reset_all(message):
 
         """)
         cur.execute("UPDATE users SET last_training = NULL") #сброс таймера трени
+        cur.execute("UPDATE users SET last_adventure = NULL") #сброс трэвэла
         cur.execute("DELETE FROM femboy_items") #сброс инвентаря
         conn.commit()
         bot.send_message(message.chat.id, "Все фембои возвращны в свои инкубаторы и откатились до заводских!")
@@ -584,6 +543,43 @@ def cmd_status(message):
         )
         bot.send_message(message.chat.id, error_text, parse_mode="HTML")
         print("Error in /status:", e)
+
+@bot.message_handler(commands=['travel'])
+def cmd_travel(message):
+    user = get_user(message)
+    if not user:
+        bot.send_message(message.chat.id, "Сначала зарегистрируйся /start")
+        return
+
+    femboy = db.get_femboy_by_user(conn, user['id'])
+    if not femboy:
+        bot.send_message(message.chat.id, "У тебя ещё нет фембоя!")
+        return
+
+    if not db.can_adventure(conn, user['id']):
+        last_adventure = db.get_last_adventure(conn, user['id'])
+        next_adventure = last_adventure + timedelta(days=1)
+        time_left = next_adventure - datetime.now()
+        
+        hours = int(time_left.total_seconds() // 3600)
+        minutes = int((time_left.total_seconds() % 3600) // 60)
+        
+        bot.send_message(
+            message.chat.id, 
+            f"⏳ Приключение доступно только 1 раз в день!\n"
+            f"Следующее приключение через: {hours}ч {minutes}м"
+        )
+        return
+
+    db.update_adventure_time(conn, user['id'])
+    
+    end_time = start_adventure(conn, femboy, message)
+    bot.send_message(
+        message.chat.id, 
+        f"🗺 {femboy['name']} отправился в загадочное приключение!\n"
+        f"⏰ Вернется примерно в {end_time.strftime('%H:%M:%S')}\n"
+        f"✨ Возможности: опыт, золото и даже редкие предметы!"
+    )
 
 while True:
     try:

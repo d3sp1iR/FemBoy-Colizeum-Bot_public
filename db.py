@@ -4,16 +4,25 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 # Используем корень рабочей директории
-DB_PATH = "/app/fembo_colos.db"
+DB_PATH = "data/fembo_colos.db"
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
     conn = get_conn()
     cur = conn.cursor()
+
+    # ПРИНУДИТЕЛЬНО ДОБАВЛЯЕМ last_adventure ЕСЛИ ЕГО НЕТ
+    try:
+        cur.execute("ALTER TABLE users ADD COLUMN last_adventure TIMESTAMP")
+        print("Добавлена колонка last_adventure в таблицу users")
+    except sqlite3.OperationalError:
+        print("Колонка last_adventure уже существует в users")
+        pass
+
 
     # Пользователи
     cur.execute("""
@@ -22,7 +31,8 @@ def init_db():
         telegram_id INTEGER UNIQUE NOT NULL,
         username TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_training TIMESTAMP
+        last_training TIMESTAMP,
+        last_adventure TIMESTAMP
     );
     """)
 
@@ -66,6 +76,18 @@ def init_db():
     );
     """)
 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS adventures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        femboy_id INTEGER NOT NULL,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP NOT NULL,
+        completed BOOLEAN DEFAULT 0,
+        chat_id INTEGER NOT NULL,
+        FOREIGN KEY(femboy_id) REFERENCES femboys(id)
+    );
+    """)
+
     # Магазин
     cur.execute("""
     CREATE TABLE IF NOT EXISTS items (
@@ -86,6 +108,17 @@ def init_db():
         ("Кошачьи ушки", "armor", 25, 450),
         ("Благородная Слизь", "armor", 100, 1500 )
     ]
+
+    # Редкие предметы для приключений
+    adventure_items = [
+        (8, "Потертый плащ", "armor", 2, 60),
+        (9, "Зачарованный амулет", "armor", 5, 150),
+        (10, "Острые когти", "weapon", 3, 90),
+        (11, "Древний свиток", "weapon", 7, 210),
+        (12, "Блестящее кольцо", "armor", 3, 90),
+        (13, "Магический жезл", "weapon", 10, 300)
+    ]
+
     for item in items:
         cur.execute("SELECT 1 FROM items WHERE name = ?", (item[0],))
         if not cur.fetchone():
@@ -99,6 +132,18 @@ def init_db():
         femboy_b INTEGER,
         winner INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS adventure_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        adventure_id INTEGER NOT NULL,
+        event_text TEXT NOT NULL,
+        xp_gained INTEGER DEFAULT 0,
+        gold_gained INTEGER DEFAULT 0,
+        item_found TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(adventure_id) REFERENCES adventures(id)
     );
     """)
 
@@ -164,7 +209,10 @@ def get_femboy_dict(conn, user_id: int) -> Optional[dict]:
     d.setdefault("armor_def", 0)
     return d
 
-
+def get_femboy_by_id(conn, femboy_id: int):
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM femboys WHERE id=?", (femboy_id,))
+    return cur.fetchone()
 
 # === Битвы ===
 def record_battle(conn, a_id: int, b_id: int, winner_id: int):
@@ -210,4 +258,39 @@ def get_user_by_username(conn, username: str):
     return cur.fetchone()
 
 
+# === Приключения ===
+def get_last_adventure(conn, user_id: int):
+    cur = conn.cursor()
+    cur.execute("SELECT last_adventure FROM users WHERE id=?", (user_id,))
+    row = cur.fetchone()
+    if row and row["last_adventure"]:
+        return datetime.fromisoformat(row["last_adventure"])
+    return None
 
+def can_adventure(conn, user_id: int):
+    last = get_last_adventure(conn, user_id)
+    if not last:
+        return True
+    return datetime.now() - last > timedelta(days=1)
+
+def update_adventure_time(conn, user_id: int):
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET last_adventure=? WHERE id=?", (datetime.now().isoformat(), user_id))
+    conn.commit()
+
+
+def add_missing_columns(conn):
+    cur = conn.cursor()
+    try:
+        cur.execute("ALTER TABLE femboys ADD COLUMN weapon_atk INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("ALTER TABLE femboys ADD COLUMN armor_def INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cur.execute("ALTER TABLE adventures ADD COLUMN chat_id INTEGER")  # ← ДОБАВЬ
+    except sqlite3.OperationalError:
+        pass
+    conn.commit()
