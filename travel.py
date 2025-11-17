@@ -4,7 +4,7 @@ import db
 from bot_utils import check_level_up
 
 # Настройки приключений
-ADVENTURE_DURATION = 60  # 1 минута для теста
+ADVENTURE_DURATION = 3600  # 1 минута для теста
 
 ADVENTURE_ITEMS = [
     {"id": 8, "name": "Потертый плащ", "type": "armor", "value": 2, "price": 60, "chance": 0.3},
