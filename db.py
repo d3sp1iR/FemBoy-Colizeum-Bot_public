@@ -1,10 +1,17 @@
 # db.py
 import sqlite3
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
-# Используем корень рабочей директории
-DB_PATH = "data/fembo_colos.db"
+# Автоматически определяем путь для контейнера
+if os.path.exists('/.dockerenv') or os.path.exists('/app/.dockerenv'):
+    DB_PATH = "/app/data/fembo_colos.db"
+else:
+    DB_PATH = "data/fembo_colos.db"
+
+# Создаем директорию для базы
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
@@ -123,7 +130,15 @@ def init_db():
         cur.execute("SELECT 1 FROM items WHERE name = ?", (item[0],))
         if not cur.fetchone():
             cur.execute("INSERT INTO items (name, type, value, price) VALUES (?, ?, ?, ?)", item)
+     # Добавляем предметы для приключений
+    for item_id, name, item_type, value, price in adventure_items:
+        cur.execute("SELECT 1 FROM items WHERE id = ?", (item_id,))
+        if not cur.fetchone():
+            cur.execute("INSERT INTO items (id, name, type, value, price) VALUES (?, ?, ?, ?, ?)", 
+                       (item_id, name, item_type, value, price))
+            print(f"Добавлен предмет для приключений: {name} (ID: {item_id})")
 
+            
     # Битвы
     cur.execute("""
     CREATE TABLE IF NOT EXISTS battles (

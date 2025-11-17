@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 # === Настройка ===
 #load_dotenv()
 TOKEN = "8231497187:AAFpmehDkGb8sr_nQZ3qbfUfnQ3EI3LXF78"
-# TOKEN = "7849791400:AAHi9JlJFwF_bVlMmWUwaXEhdP7chlHQSCw"
+#TOKEN = "7849791400:AAHi9JlJFwF_bVlMmWUwaXEhdP7chlHQSCw"
 bot = telebot.TeleBot(TOKEN)
 bot.start_time = time.time()  
 conn = db.init_db()
@@ -580,6 +580,44 @@ def cmd_travel(message):
         f"⏰ Вернется примерно в {end_time.strftime('%H:%M:%S')}\n"
         f"✨ Возможности: опыт, золото и даже редкие предметы!"
     )
+
+@bot.message_handler(commands=['reset_timings'])
+def cmd_reset_timings(message):
+    """Сбросить кд тренировки и приключения у конкретного пользователя"""
+    if not is_user_admin_by_message(message):
+        bot.reply_to(message, "ты не админ, хатьфу, соси.")
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "Укажи пользователя: /reset_timings @username")
+        return
+
+    username = args[1].lstrip('@')
+    
+    try:
+        conn = db.get_conn()
+        cur = conn.cursor()
+        
+        # Ищем пользователя по username
+        cur.execute("SELECT * FROM users WHERE username=?", (username,))
+        target_user = cur.fetchone()
+        
+        if not target_user:
+            bot.reply_to(message, f"Пользователь @{username} не найден")
+            conn.close()
+            return
+
+        # Сбрасываем таймеры
+        cur.execute("UPDATE users SET last_training=NULL, last_adventure=NULL WHERE id=?", (target_user['id'],))
+        conn.commit()
+        conn.close()
+        
+        bot.reply_to(message, f"✅ Таймеры тренировки и приключений сброшены для @{username}!")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {e}")
+        print("Error in /reset_timings:", e)
 
 while True:
     try:
