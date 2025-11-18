@@ -574,10 +574,13 @@ def cmd_travel(message):
     db.update_adventure_time(conn, user['id'])
     
     end_time = start_adventure(conn, femboy, message)
+
+    moscow_offset = timedelta(hours=3)
+    moscow_end_time = end_time + moscow_offset
     bot.send_message(
         message.chat.id, 
         f"🗺 {femboy['name']} отправился в загадочное приключение!\n"
-        f"⏰ Вернется примерно в {end_time.strftime('%H:%M:%S')}\n"
+        f"⏰ Вернется примерно в {moscow_end_time.strftime('%H:%M:%S')}\n"
         f"✨ Возможности: опыт, золото и даже редкие предметы!"
     )
 
