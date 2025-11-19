@@ -1,9 +1,6 @@
 venv/
 .env
 __pycache__/
-*.db
-*.sqlite
-*.sqlite3
 data/
-/app/data/
-/data
+data/fembo_colos.db
+
